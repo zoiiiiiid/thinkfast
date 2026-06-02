@@ -207,45 +207,6 @@ Row Level Security should be enabled so each user can only access their own data
 
 ---
 
-## Recommended `.gitignore`
-
-Make sure the following are ignored:
-
-```gitignore
-node_modules
-.next
-.vercel
-.env*
-!.env.example
-```
-
-The schema file is safe to include as long as it only contains table definitions, policies, functions, and structure. Do not include real user data, prompts, API keys, or private records.
-
----
-
-## Deployment on Vercel
-
-1. Push the project to GitHub.
-2. Import the repository into Vercel.
-3. Add the required environment variables in:
-
-```text
-Vercel → Project → Settings → Environment Variables
-```
-
-4. Deploy the project.
-
-Required production variables:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
-GEMINI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
-```
-
----
-
 ## MVP Flow
 
 A successful MVP test should follow this flow:
