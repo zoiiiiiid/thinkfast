@@ -13,20 +13,26 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
   const [isLoadingBoards, setIsLoadingBoards] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+
     async function loadBoards() {
       try {
         const res = await fetch("/api/boards");
         const data = res.ok ? await res.json() : [];
-        setBoards(Array.isArray(data) ? data : data.boards ?? []);
+        const list = Array.isArray(data) ? data : data.boards ?? [];
+        if (mounted) setBoards(list);
       } catch (error) {
         console.error("Failed to load boards:", error);
-        setBoards([]);
+        if (mounted) setBoards([]);
       } finally {
-        setIsLoadingBoards(false);
+        if (mounted) setIsLoadingBoards(false);
       }
     }
 
     void loadBoards();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   async function saveToBoard() {
@@ -42,10 +48,10 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
         body: JSON.stringify({ conversationId, boardId }),
       });
       const json = await res.json();
-      setStatus(res.ok && json.ok ? "Saved to board." : json.error || json.message || "Unable to save to board.");
+      setStatus(res.ok && json.ok ? "Saved" : json.error || json.message || "Unable to save");
     } catch (error) {
       console.error("Save to board error:", error);
-      setStatus("Unable to save to board.");
+      setStatus("Unable to save");
     } finally {
       setIsSaving(false);
     }
@@ -54,13 +60,14 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
   const disabled = !conversationId || !boardId || isSaving;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex items-center gap-2">
       <select
-        className="h-9 rounded-full border bg-background px-3 text-sm outline-none transition focus:border-primary"
+        className="h-8 max-w-40 rounded-full border bg-background px-3 text-xs outline-none transition focus:border-primary"
         value={boardId}
         onChange={(event) => setBoardId(event.target.value)}
+        aria-label="Choose board"
       >
-        <option value="">{isLoadingBoards ? "Loading boards..." : "Save to board"}</option>
+        <option value="">{isLoadingBoards ? "Loading..." : "Save to board"}</option>
         {boards.map((board) => (
           <option key={board.id} value={board.id}>
             {board.name}
@@ -69,14 +76,8 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
       </select>
 
       <Button size="sm" onClick={saveToBoard} disabled={disabled}>
-        {isSaving ? "Saving..." : "Add"}
+        {isSaving ? "Saving" : "Add"}
       </Button>
-
-      {!conversationId ? (
-        <span className="text-xs text-muted-foreground">Generate first.</span>
-      ) : !boardId ? (
-        <span className="text-xs text-muted-foreground">Choose a board.</span>
-      ) : null}
 
       {status ? <span className="text-xs text-muted-foreground">{status}</span> : null}
     </div>
