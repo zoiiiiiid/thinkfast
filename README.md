@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## ThinkFast MVP
+
+ThinkFast is a privacy-centered AI productivity workspace.
+
+Core flow:
+
+`User prompt -> Privacy Check -> Idea Check -> AI Mode -> AI Output -> Save as Card -> Follow-up -> Board`
+
+### Stack
+
+- Next.js + TypeScript
+- Tailwind CSS + shadcn/ui baseline
+- Supabase (auth + DB + storage ready)
+- OpenAI API (generation and AI helpers)
+- Vercel-ready app router structure
 
 ## Getting Started
 
-First, run the development server:
+1. Install and run:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Copy env values:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Configure Supabase and run SQL in `supabase/schema.sql`.
 
-## Learn More
+4. Open [http://localhost:3000](http://localhost:3000).
 
-To learn more about Next.js, take a look at the following resources:
+### Main Pages
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `/` landing page
+- `/auth` login/signup
+- `/feed` personalized card feed
+- `/create` template-based task starter
+- `/workspace` prompt + privacy/idea checks + generation
+- `/boards` board management
+- `/insights` usage dashboard
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### API Endpoints
 
-## Deploy on Vercel
+- `POST /api/check-privacy`
+- `POST /api/check-idea`
+- `POST /api/generate`
+- `POST /api/conversations`
+- `GET,POST /api/boards`
+- `POST /api/conversation-boards`
+- `POST /api/generate-feed-cards`
+- `GET /api/feed`
+- `GET /api/insights`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Privacy Defaults
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Redacted prompt is stored by default.
+- Raw prompt is opt-in only from the workspace UI.
+- Privacy warnings are shown for medium/high risk.
+- Privacy First mode can be selected quickly when sensitive details are detected.
