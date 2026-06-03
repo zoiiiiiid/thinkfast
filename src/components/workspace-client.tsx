@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { TEMPLATE_OPTIONS } from "@/lib/constants";
 import { ModelSelector } from "@/components/model-selector";
 import { SaveToBoardButton } from "@/components/save-to-board-button";
-import { getModelLabel } from "@/lib/model-router";
 import type {
   AiMode,
   CreateTemplate,
@@ -121,12 +120,15 @@ export function WorkspaceClient({
   );
   const [mode, setMode] = useState<AiMode>("auto");
   const [input, setInput] = useState("");
-  const [saveRawPrompt, setSaveRawPrompt] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
 
   const [pending, setPending] = useState<PendingRequest | null>(null);
+  const [pendingUserMessageId, setPendingUserMessageId] = useState<string | null>(
+    null
+  );
+
   const [privacyDecision, setPrivacyDecision] =
     useState<PrivacyDecision | null>(null);
   const [ideaAnswer, setIdeaAnswer] = useState("");
@@ -171,7 +173,9 @@ export function WorkspaceClient({
     return ideaAnswer.trim().length > 0;
   }, [pending, ideaAnswer]);
 
-  const canGeneratePending = Boolean(pending && privacyReady && ideaReady && !loading);
+  const canGeneratePending = Boolean(
+    pending && privacyReady && ideaReady && !loading
+  );
 
   const quickOptions = pending?.idea.quickOptions?.length
     ? pending.idea.quickOptions
@@ -190,6 +194,15 @@ export function WorkspaceClient({
     return nextMessage;
   }
 
+  function removeMessageById(messageId: string) {
+    const nextMessages = messagesRef.current.filter(
+      (message) => message.id !== messageId
+    );
+
+    messagesRef.current = nextMessages;
+    setMessages(nextMessages);
+  }
+
   async function saveConversation(
     result: GenerationResult,
     request: PendingRequest,
@@ -203,7 +216,7 @@ export function WorkspaceClient({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: result.title || `${template} Output`,
-        originalPrompt: saveRawPrompt ? request.prompt : null,
+        originalPrompt: null,
         redactedPrompt: usedPrompt,
         aiResponse: result.output || "",
         summary: result.summary || "Generated ThinkFast output.",
@@ -295,6 +308,7 @@ export function WorkspaceClient({
       await saveConversation(result, request, promptToGenerate, usedMode);
 
       setPending(null);
+      setPendingUserMessageId(null);
       setIdeaAnswer("");
       setPrivacyDecision(null);
     } catch (error) {
@@ -348,6 +362,8 @@ export function WorkspaceClient({
     } catch (error) {
       console.error(error);
 
+      setPendingUserMessageId(null);
+
       addMessage({
         role: "system",
         content:
@@ -372,10 +388,12 @@ export function WorkspaceClient({
     setInput("");
     autosizeTextArea(inputRef.current);
 
-    addMessage({
+    const userMessage = addMessage({
       role: "user",
       content: prompt,
     });
+
+    setPendingUserMessageId(userMessage.id);
 
     await runChecks(prompt);
   }
@@ -411,10 +429,16 @@ export function WorkspaceClient({
   }
 
   function cancelPending() {
+    if (pendingUserMessageId) {
+      removeMessageById(pendingUserMessageId);
+    }
+
     setPending(null);
+    setPendingUserMessageId(null);
     setIdeaAnswer("");
     setPrivacyDecision(null);
     setInput("");
+    setLoading(null);
   }
 
   return (
@@ -659,16 +683,6 @@ export function WorkspaceClient({
                   onChange={setMode}
                   disabled={Boolean(pending)}
                 />
-              </label>
-
-              <label className="hidden items-center gap-2 rounded-full border px-2.5 py-1.5 md:flex">
-                <input
-                  type="checkbox"
-                  checked={saveRawPrompt}
-                  onChange={(event) => setSaveRawPrompt(event.target.checked)}
-                  disabled={Boolean(pending)}
-                />
-                Save raw
               </label>
             </div>
 

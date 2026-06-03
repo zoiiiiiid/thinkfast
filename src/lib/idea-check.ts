@@ -1,227 +1,194 @@
 import type { CreateTemplate, IdeaCheckResult } from "@/lib/types";
 
+const TASK_REQUEST_PATTERNS = [
+  /\b(make|write|create|do|generate)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer)\b/i,
+  /\bgive\s+me\s+(an?\s+)?(idea|business idea|topic|answer|caption|outline)\b/i,
+  /\bhelp\s+me\s+(make|write|create|do|answer|draft)\b/i,
+  /\b(can you|please)\s+(make|write|create|generate|draft)\b/i,
+];
+
 const VERY_VAGUE_PATTERNS = [
-  /^make me (a|an)?\s*(reflection|essay|output|draft|paper|caption|email|proposal)?\.?$/i,
-  /^write (me )?(a|an)?\s*(reflection|essay|output|draft|paper|caption|email|proposal)?\.?$/i,
-  /^create (me )?(a|an)?\s*(reflection|essay|output|draft|paper|caption|email|proposal)?\.?$/i,
-  /^give me (ideas|something|a topic|a business idea)\.?$/i,
-  /^help me with (this|my assignment|my homework|my project)\.?$/i,
+  /^\s*(make|write|create|do|generate)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer)?\s*\.?\s*$/i,
+  /^\s*(give me|suggest)\s+(ideas|something|a topic|an answer|a business idea)\s*\.?\s*$/i,
+  /^\s*help me with (this|my assignment|my homework|my project)\s*\.?\s*$/i,
 ];
 
-const TASK_WORDS = [
-  "reflection",
-  "essay",
-  "paper",
-  "caption",
-  "email",
-  "proposal",
-  "presentation",
-  "script",
-  "reviewer",
-  "quiz",
-  "business idea",
-  "study plan",
-  "project",
+const USER_DIRECTION_SIGNALS = [
+  /\bi\s+(think|believe|feel|want|need|prefer|realize|learned|agree|disagree|argue|plan|experienced|noticed)\b/i,
+  /\bmy\s+(idea|opinion|experience|example|goal|problem|audience|view|point|stand|argument|realization|take)\b/i,
+  /\bthe\s+(main\s+)?(idea|point|goal|audience|purpose|argument|stand|problem)\s+is\b/i,
+  /\bbecause\b/i,
+  /\bshould\s+(focus|argue|explain|show|emphasize)\b/i,
+  /\bmake it sound\b/i,
 ];
 
-const SPECIFICITY_MARKERS = [
-  "about",
-  "on",
-  "regarding",
-  "for",
-  "based on",
-  "because",
-  "why",
-  "how",
-  "should",
-  "will",
-  "can",
-  "in the next",
-  "my experience",
-  "students",
+const GENERIC_TOPICS = new Set([
+  "ai",
+  "artificial intelligence",
+  "technology",
+  "social media",
+  "education",
   "business",
   "school",
   "work",
-  "ai",
   "privacy",
-  "dependence",
-  "education",
-  "technology",
-  "human",
-  "future",
-];
+  "life",
+  "love",
+]);
 
 function normalize(text: string) {
   return text.trim().replace(/\s+/g, " ");
 }
 
-function wordCount(text: string) {
+function countWords(text: string) {
   return normalize(text).split(" ").filter(Boolean).length;
 }
 
-function hasVeryVaguePattern(prompt: string) {
-  return VERY_VAGUE_PATTERNS.some((pattern) => pattern.test(normalize(prompt)));
-}
+function extractSubject(prompt: string) {
+  const clean = normalize(prompt);
 
-function hasSpecificTopic(prompt: string) {
-  const lower = prompt.toLowerCase();
-
-  const hasMarker = SPECIFICITY_MARKERS.some((marker) =>
-    lower.includes(marker)
-  );
-
-  const hasAboutPhrase =
-    /\b(about|on|regarding|for|based on)\b\s+.{8,}/i.test(prompt);
-
-  const hasEnoughWords = wordCount(prompt) >= 10;
-
-  return hasMarker || hasAboutPhrase || hasEnoughWords;
-}
-
-function isOnlyTaskRequest(prompt: string) {
-  const lower = normalize(prompt).toLowerCase();
-
-  const withoutTaskWords = TASK_WORDS.reduce(
-    (current, word) => current.replaceAll(word, ""),
-    lower
-  )
-    .replace(/\b(make|write|create|give|help|me|a|an|my|the|for|about|with)\b/g, "")
-    .replace(/[^\w\s]/g, "")
-    .trim();
-
-  return withoutTaskWords.length < 8;
-}
-
-function extractTopic(prompt: string) {
-  const match = prompt.match(/\b(?:about|on|regarding|for|based on)\b\s+(.+)/i);
-
-  if (match?.[1]) {
-    return match[1]
-      .replace(/[?.!]+$/g, "")
-      .trim();
+  const aboutMatch = clean.match(/\b(?:about|on|regarding|for|based on)\b\s+(.+)/i);
+  if (aboutMatch?.[1]) {
+    return aboutMatch[1].replace(/[?.!]+$/g, "").trim();
   }
 
-  return normalize(prompt)
-    .replace(/^(make|write|create|give|help)\s+(me\s+)?(a|an)?\s*/i, "")
-    .replace(/\b(reflection|essay|paper|caption|email|proposal|presentation|script)\b/i, "")
+  return clean
+    .replace(/^(make|write|create|do|generate|give|help)\s+(me\s+)?(a|an|my)?\s*/i, "")
+    .replace(/\b(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer|answer|idea)\b/gi, "")
     .replace(/[?.!]+$/g, "")
     .trim();
 }
 
-function getTemplateQuestions(template: string, topic: string) {
-  const cleanTopic = topic || "this topic";
-
-  const lowerTemplate = template.toLowerCase();
-
-  if (lowerTemplate.includes("reflection")) {
-    return [
-      `What is your personal view on ${cleanTopic}?`,
-      `What real experience or realization do you want to connect to ${cleanTopic}?`,
-      `What lesson or insight should the reflection end with?`,
-    ];
-  }
-
-  if (lowerTemplate.includes("essay")) {
-    return [
-      `What main argument do you want to make about ${cleanTopic}?`,
-      `What side or position should the essay support?`,
-      `What example should be included?`,
-    ];
-  }
-
-  if (lowerTemplate.includes("business")) {
-    return [
-      `What problem should this business idea solve?`,
-      `Who is the target user or customer?`,
-      `What makes the idea different from existing solutions?`,
-    ];
-  }
-
-  if (lowerTemplate.includes("quiz") || lowerTemplate.includes("reviewer")) {
-    return [
-      `What topic should the reviewer focus on?`,
-      `What level of difficulty do you need?`,
-      `Should it be multiple choice, identification, or explanation-based?`,
-    ];
-  }
-
-  if (lowerTemplate.includes("email")) {
-    return [
-      `Who is the email for?`,
-      `What is the main message or request?`,
-      `Should the email sound formal, respectful, casual, or urgent?`,
-    ];
-  }
-
-  if (lowerTemplate.includes("caption")) {
-    return [
-      `What product, event, or idea is the caption for?`,
-      `What feeling should the caption create?`,
-      `Should it sound fun, classy, trendy, or straightforward?`,
-    ];
-  }
-
-  return [
-    `What is your main idea about ${cleanTopic}?`,
-    `Who is this for?`,
-    `What should the final output focus on?`,
-  ];
+function isGenericSubject(subject: string) {
+  const lower = subject.toLowerCase().replace(/[?.!]/g, "").trim();
+  if (!lower) return true;
+  if (GENERIC_TOPICS.has(lower)) return true;
+  if (countWords(lower) <= 2) return true;
+  return false;
 }
 
-function getQuickOptions(template: string, topic: string) {
-  const cleanTopic = topic || "this topic";
-  const lowerTemplate = template.toLowerCase();
+function hasSpecificAngle(prompt: string, subject: string) {
+  const lower = `${prompt} ${subject}`.toLowerCase();
+  const subjectWords = countWords(subject);
 
-  if (lowerTemplate.includes("reflection")) {
-    return [
-      `I want to connect ${cleanTopic} to my own experience.`,
-      `I want the reflection to explain what I learned from ${cleanTopic}.`,
-      `I want the output to sound natural and not generic.`,
-    ];
-  }
+  if (subjectWords >= 6) return true;
 
-  if (lowerTemplate.includes("essay")) {
-    return [
-      `I want to argue that ${cleanTopic} is important today.`,
-      `I want a balanced discussion of both sides.`,
-      `I want the essay to be clear, structured, and convincing.`,
-    ];
-  }
-
-  if (lowerTemplate.includes("business")) {
-    return [
-      `I want this to solve a real everyday problem.`,
-      `I want the idea to be simple and feasible for an MVP.`,
-      `I want the business idea to help students or young users.`,
-    ];
-  }
-
-  return [
-    `I want the output to be clear and practical.`,
-    `I want the AI to organize my idea, not invent everything from zero.`,
-    `I want it to sound natural and specific.`,
-  ];
+  return (
+    subjectWords >= 4 &&
+    /\b(how|why|whether|impact|effects?|replace|dependence|future|next\s+\d+\s+years?|students|workers|human work|real human work|philippines|bacolod|education|privacy|ethics|society)\b/i.test(lower)
+  );
 }
 
-export function checkIdea(
-  prompt: string,
-  template: CreateTemplate | string = "Custom Prompt"
-): IdeaCheckResult {
-  const cleanedPrompt = normalize(prompt);
-  const topic = extractTopic(cleanedPrompt);
+function getSubjectLabel(subject: string) {
+  return subject || "this topic";
+}
 
-  const veryVague = hasVeryVaguePattern(cleanedPrompt);
-  const onlyTask = isOnlyTaskRequest(cleanedPrompt);
-  const specificTopic = hasSpecificTopic(cleanedPrompt);
+function questionsFor(template: CreateTemplate | undefined, subject: string): string[] {
+  const topic = getSubjectLabel(subject);
 
-  const shouldAskIdeaFirst =
-    veryVague || (onlyTask && !specificTopic) || wordCount(cleanedPrompt) < 5;
+  switch (template) {
+    case "Reflection":
+      return [
+        `What is your own view or realization about ${topic}?`,
+        `What personal example, observation, or experience can connect to ${topic}?`,
+        "What lesson should the reflection end with?",
+      ];
+    case "Essay":
+      return [
+        `What main argument do you want to make about ${topic}?`,
+        "What reason or example should support your point?",
+        "Do you want a balanced, persuasive, or analytical essay?",
+      ];
+    case "Business Idea":
+      return [
+        `What specific problem should this idea solve?`,
+        "Who exactly is the target user?",
+        "What makes the idea different from existing tools?",
+      ];
+    case "Quiz Reviewer":
+      return [
+        `What exact lesson or topic should the reviewer focus on?`,
+        "Should it be multiple choice, identification, or mixed?",
+        "Should the answers appear immediately or at the end?",
+      ];
+    case "Presentation Script":
+      return [
+        `What should the audience remember about ${topic}?`,
+        "How long should the script be?",
+        "Should it sound formal, casual, persuasive, or student-like?",
+      ];
+    case "Email":
+      return [
+        "Who is the email for?",
+        "What is your main message or request?",
+        "Should it sound respectful, warm, urgent, or direct?",
+      ];
+    case "Social Media Caption":
+      return [
+        `What feeling should the caption create about ${topic}?`,
+        "Should it sound trendy, premium, funny, or simple?",
+        "Do you want a call-to-action?",
+      ];
+    default:
+      return [
+        `What is your main idea about ${topic}?`,
+        "Who is this for?",
+        "What should the final output focus on?",
+      ];
+  }
+}
 
-  if (!shouldAskIdeaFirst) {
+function optionsFor(template: CreateTemplate | undefined, subject: string): string[] {
+  const topic = getSubjectLabel(subject);
+
+  switch (template) {
+    case "Reflection":
+      return [
+        `I want to connect ${topic} to my own experience or observation.`,
+        `I want to explain what I learned or realized about ${topic}.`,
+        `I want the reflection to sound natural and not generic.`,
+      ];
+    case "Essay":
+      return [
+        `My thesis is that ${topic} has both benefits and risks.`,
+        `I want to argue that ${topic} should be used responsibly.`,
+        `I want a balanced essay that explains both sides clearly.`,
+      ];
+    case "Business Idea":
+      return [
+        "I want this to solve a real everyday problem.",
+        "The target users should be students or young professionals.",
+        "The idea should be simple enough for an MVP.",
+      ];
+    default:
+      return [
+        `My main idea is that ${topic} should be clear, useful, and practical.`,
+        "I want the output to sound natural and specific.",
+        "I want AI to organize my idea, not invent everything from zero.",
+      ];
+  }
+}
+
+export function checkIdeaPrompt(prompt: string, template?: CreateTemplate): IdeaCheckResult {
+  const clean = normalize(prompt);
+  const subject = extractSubject(clean);
+  const promptWords = countWords(clean);
+
+  const isTaskRequest = TASK_REQUEST_PATTERNS.some((pattern) => pattern.test(clean));
+  const isVeryVague = VERY_VAGUE_PATTERNS.some((pattern) => pattern.test(clean));
+  const hasUserDirection = USER_DIRECTION_SIGNALS.some((pattern) => pattern.test(clean));
+  const genericSubject = isGenericSubject(subject);
+  const specificAngle = hasSpecificAngle(clean, subject);
+
+  const needsIdeaPrompt =
+    isVeryVague ||
+    (isTaskRequest && !hasUserDirection && (genericSubject || !specificAngle)) ||
+    (!hasUserDirection && promptWords <= 6);
+
+  if (!needsIdeaPrompt) {
     return {
       ideaPromptNeeded: false,
-      reason:
-        "The prompt already has enough direction to generate a useful output.",
+      reason: "The prompt already gives enough direction to generate a useful output.",
       suggestedQuestions: [],
       quickOptions: [],
     };
@@ -230,8 +197,11 @@ export function checkIdea(
   return {
     ideaPromptNeeded: true,
     reason:
-      "Your request is still too broad. Add your idea first so the output starts from your thinking, not from a generic AI answer.",
-    suggestedQuestions: getTemplateQuestions(String(template), topic),
-    quickOptions: getQuickOptions(String(template), topic),
+      "Your request needs your idea first. Add your direction so ThinkFast does not generate a generic AI answer.",
+    suggestedQuestions: questionsFor(template, subject),
+    quickOptions: optionsFor(template, subject),
   };
 }
+
+// Backward-compatible alias in case another file imports checkIdea.
+export const checkIdea = checkIdeaPrompt;

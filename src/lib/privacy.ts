@@ -6,6 +6,33 @@ type PrivacyRule = {
   level: "medium" | "high";
 };
 
+const CITY_NAMES = [
+  "Bacolod",
+  "Manila",
+  "Quezon City",
+  "Cebu",
+  "Davao",
+  "Iloilo",
+  "Makati",
+  "Pasig",
+  "Taguig",
+  "Mandaluyong",
+  "Paranaque",
+  "Parañaque",
+  "Caloocan",
+  "Las Pinas",
+  "Las Piñas",
+  "Baguio",
+  "Cagayan de Oro",
+  "General Santos",
+  "Zamboanga",
+  "Singapore",
+  "Tokyo",
+  "Hong Kong",
+];
+
+const cityPattern = new RegExp(`\\b(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i");
+
 const RULES: PrivacyRule[] = [
   {
     label: "email",
@@ -47,8 +74,21 @@ const RULES: PrivacyRule[] = [
     pattern: /\b(trauma|family issue|confidential|private story|secret|personal struggle|personal problem)\b/i,
     level: "high",
   },
-
-  // Medium-risk context. These are intentionally cautious, but they do not flag the word "my" by itself.
+  {
+    label: "personal name",
+    pattern: /\b(my name is|i am|i'm|call me|this is)\s+([A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+){0,3})\b/i,
+    level: "medium",
+  },
+  {
+    label: "city/location",
+    pattern: new RegExp(`\\b(my city is|i live in|living in|from|based in|located in|city of)\\s+(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}|[A-Za-z][A-Za-z'.-]+(?:\\s+City)?)\\b`, "i"),
+    level: "medium",
+  },
+  {
+    label: "city/location",
+    pattern: cityPattern,
+    level: "medium",
+  },
   {
     label: "school/institution",
     pattern: /\b(Ateneo|ADMU|La Salle|DLSU|UP|UST|University|College|School|campus)\b/i,
@@ -98,6 +138,25 @@ function redactPrompt(prompt: string, detectedItems: string[]) {
     redacted = redacted.replace(
       /\b(?:student\s*(?:id|number)|school\s*id|id\s*number)\s*[:#]?\s*[A-Z0-9-]{5,}\b/gi,
       "[STUDENT_ID]",
+    );
+  }
+
+  if (detectedItems.includes("personal name")) {
+    redacted = redacted.replace(
+      /\b(my name is|i am|i'm|call me|this is)\s+([A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+){0,3})\b/gi,
+      "$1 [NAME]",
+    );
+  }
+
+  if (detectedItems.includes("city/location")) {
+    redacted = redacted.replace(
+      new RegExp(`\\b(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "gi"),
+      "[CITY]",
+    );
+
+    redacted = redacted.replace(
+      /\b(my city is|i live in|living in|from|based in|located in|city of)\s+([A-Za-z][A-Za-z'.-]+(?:\s+City)?)\b/gi,
+      "$1 [CITY]",
     );
   }
 
