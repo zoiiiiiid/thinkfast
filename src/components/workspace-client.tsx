@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TEMPLATE_OPTIONS } from "@/lib/constants";
 import { ModelSelector } from "@/components/model-selector";
 import { SaveToBoardButton } from "@/components/save-to-board-button";
@@ -100,6 +101,42 @@ function statusText(
   if (pending?.idea.ideaPromptNeeded) return "Your Idea First";
   if (pending?.privacy.privacyRisk !== "low") return "Privacy Decision";
   return "Ready";
+}
+
+
+function WorkspaceLoadingSkeleton() {
+  return (
+    <div className="mx-auto max-w-3xl space-y-5">
+      <p className="sr-only" role="status">
+        Loading your saved ThinkFast conversation...
+      </p>
+      <article className="ml-auto max-w-[82%] rounded-[1.4rem] bg-primary/10 px-4 py-3 shadow-sm">
+        <Skeleton className="h-4 w-56 bg-primary/20" />
+        <Skeleton className="mt-2 h-4 w-40 bg-primary/20" />
+      </article>
+      <article className="mr-auto max-w-[92%] rounded-[1.5rem] border bg-card px-5 py-4 shadow-sm">
+        <Skeleton className="h-5 w-2/5" />
+        <Skeleton className="mt-3 h-4 w-full" />
+        <Skeleton className="mt-2 h-4 w-11/12" />
+        <Skeleton className="mt-2 h-4 w-4/5" />
+        <div className="mt-4 flex gap-2">
+          <Skeleton className="h-6 w-20 rounded-full" />
+          <Skeleton className="h-6 w-24 rounded-full" />
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function AssistantWorkingSkeleton() {
+  return (
+    <article className="mr-auto max-w-[92%] rounded-[1.5rem] border bg-card px-5 py-4 shadow-sm">
+      <Skeleton className="h-5 w-36" />
+      <Skeleton className="mt-3 h-4 w-full" />
+      <Skeleton className="mt-2 h-4 w-10/12" />
+      <Skeleton className="mt-2 h-4 w-7/12" />
+    </article>
+  );
 }
 
 function getComposerHint(
@@ -718,7 +755,11 @@ export function WorkspaceClient({
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
-        {!messages.length && !pending ? (
+        {loading === "loading" && !messages.length ? (
+          <WorkspaceLoadingSkeleton />
+        ) : null}
+
+        {!messages.length && !pending && loading !== "loading" ? (
           <div className="mx-auto flex min-h-full max-w-2xl flex-col justify-center pb-10 text-center">
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
               What are you making today?
@@ -794,6 +835,10 @@ export function WorkspaceClient({
               )}
             </article>
           ))}
+
+          {loading && loading !== "loading" && !pending ? (
+            <AssistantWorkingSkeleton />
+          ) : null}
 
           {pending ? (
             <article className="mr-auto max-w-[92%] rounded-[1.5rem] border bg-card p-4 shadow-sm">

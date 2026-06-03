@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Board = {
   id: string;
@@ -10,6 +11,8 @@ type Board = {
   description?: string | null;
   created_at?: string;
 };
+
+type BoardResponse = Board | { ok?: boolean; board?: Board | null } | null;
 
 type Conversation = {
   id: string;
@@ -23,12 +26,47 @@ type Conversation = {
   updated_at?: string | null;
 };
 
+function BoardHeaderSkeleton() {
+  return (
+    <div className="space-y-3">
+      <Skeleton className="h-3 w-20" />
+      <Skeleton className="h-8 w-52" />
+      <Skeleton className="h-4 w-full max-w-xl" />
+      <Skeleton className="h-4 w-3/4 max-w-lg" />
+    </div>
+  );
+}
+
+function ConversationCardSkeleton() {
+  return (
+    <article className="rounded-[1.5rem] border bg-card p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-3">
+          <Skeleton className="h-5 w-3/5" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-5 w-20 rounded-full" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+        </div>
+
+        <div className="shrink-0 space-y-2">
+          <Skeleton className="h-8 w-20 rounded-full" />
+          <Skeleton className="h-7 w-20 rounded-full" />
+        </div>
+      </div>
+    </article>
+  );
+}
+
 async function fetchJsonWithTimeout<T>(url: string, fallback: T): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 8000);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
     if (!response.ok) return fallback;
 
     const text = await response.text().catch(() => "");
@@ -63,7 +101,7 @@ export default function BoardDetailPage() {
       setError("");
 
       try {
-        const boardData = await fetchJsonWithTimeout<Board | null>(`/api/boards/${boardId}`, null);
+        const boardResponse = await fetchJsonWithTimeout<BoardResponse>(`/api/boards/${boardId}`, null);
         const conversationData = await fetchJsonWithTimeout<Conversation[] | { conversations?: Conversation[] }>(
           `/api/boards/${boardId}/conversations`,
           [],
@@ -71,6 +109,8 @@ export default function BoardDetailPage() {
 
         if (!mounted) return;
 
+        const boardData =
+          boardResponse && "board" in boardResponse ? boardResponse.board ?? null : boardResponse;
         const list = Array.isArray(conversationData) ? conversationData : conversationData.conversations ?? [];
         setBoard(boardData);
         setConversations(list);
@@ -94,21 +134,36 @@ export default function BoardDetailPage() {
 
       <div className="rounded-[1.5rem] border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Board</p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight">{board?.name ?? "Loading board"}</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {board?.description || "Saved ThinkFast conversations appear here."}
-            </p>
-          </div>
-          <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">{conversations.length} saved</span>
+          {loading && !board ? (
+            <BoardHeaderSkeleton />
+          ) : (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Board</p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight">{board?.name ?? "Board"}</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                {board?.description || "Saved ThinkFast conversations appear here."}
+              </p>
+            </div>
+          )}
+          {loading ? (
+            <Skeleton className="h-7 w-20 rounded-full" />
+          ) : (
+            <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">{conversations.length} saved</span>
+          )}
         </div>
       </div>
 
       {loading ? (
-        <div className="rounded-[1.5rem] border bg-card p-6 text-sm text-muted-foreground shadow-sm">
-          Loading saved conversations...
-        </div>
+        <>
+          <p className="sr-only" role="status">
+            Loading saved conversations...
+          </p>
+          <div className="space-y-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <ConversationCardSkeleton key={index} />
+            ))}
+          </div>
+        </>
       ) : null}
 
       {!loading && error ? (

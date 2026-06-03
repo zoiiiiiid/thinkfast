@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Insights = {
   outputsGenerated: number;
@@ -19,6 +20,34 @@ const emptyInsights: Insights = {
   recentModes: [],
   boardsCreated: 0,
 };
+
+function MetricSkeleton({ wide = false }: { wide?: boolean }) {
+  return (
+    <article className={`rounded-xl border p-4 ${wide ? "md:col-span-2" : ""}`}>
+      <Skeleton className="h-3 w-28" />
+      <Skeleton className="mt-3 h-8 w-16" />
+    </article>
+  );
+}
+
+function InsightsSkeleton() {
+  return (
+    <section className="space-y-4">
+      <p className="sr-only" role="status">
+        Loading insights...
+      </p>
+      <Skeleton className="h-8 w-32" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <MetricSkeleton />
+        <MetricSkeleton />
+        <MetricSkeleton />
+        <MetricSkeleton />
+        <MetricSkeleton wide />
+        <MetricSkeleton wide />
+      </div>
+    </section>
+  );
+}
 
 async function loadInsights(): Promise<Insights> {
   try {
@@ -52,7 +81,7 @@ export default function InsightsPage() {
     };
   }, []);
 
-  if (!insights) return <p>Loading insights...</p>;
+  if (!insights) return <InsightsSkeleton />;
 
   return (
     <section className="space-y-4">

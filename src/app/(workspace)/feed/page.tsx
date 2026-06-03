@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { FeedCard } from "@/components/cards";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type FeedItem = {
   id: string;
@@ -24,6 +25,42 @@ type RecentConversation = {
   created_at?: string | null;
   updated_at?: string | null;
 };
+
+function RecentConversationSkeleton() {
+  return (
+    <div className="rounded-xl border p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-4 w-3/5" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+        </div>
+
+        <Skeleton className="h-6 w-16 shrink-0 rounded-full" />
+      </div>
+
+      <div className="mt-3 flex gap-1.5">
+        <Skeleton className="h-5 w-12 rounded-full" />
+        <Skeleton className="h-5 w-20 rounded-full" />
+      </div>
+    </div>
+  );
+}
+
+function FeedCardSkeleton() {
+  return (
+    <article className="rounded-[1.5rem] border bg-card p-4 shadow-sm">
+      <Skeleton className="mb-3 h-6 w-20 rounded-full" />
+      <Skeleton className="h-5 w-2/3" />
+      <div className="mt-3 space-y-2">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+        <Skeleton className="h-4 w-3/4" />
+      </div>
+      <Skeleton className="mt-4 h-4 w-24" />
+    </article>
+  );
+}
 
 function normalizeFeed(data: unknown): FeedItem[] {
   if (Array.isArray(data)) return data as FeedItem[];
@@ -119,9 +156,14 @@ export default function FeedPage() {
 
           <div className="mt-3 grid gap-2">
             {loading ? (
-              <p className="rounded-xl bg-muted/50 p-3 text-xs text-muted-foreground">
-                Loading your recent work...
-              </p>
+              <>
+                <p className="sr-only" role="status">
+                  Loading your recent work...
+                </p>
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <RecentConversationSkeleton key={index} />
+                ))}
+              </>
             ) : null}
 
             {!loading && recentConversations.slice(0, 3).map((conversation) => (
@@ -169,16 +211,20 @@ export default function FeedPage() {
         </article>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((card) => (
-            <FeedCard
-              key={card.id}
-              title={card.title}
-              description={card.description}
-              suggestedAction={card.suggested_action}
-              href={card.href}
-              meta={card.meta}
-            />
-          ))}
+          {loading
+            ? Array.from({ length: 6 }).map((_, index) => (
+                <FeedCardSkeleton key={index} />
+              ))
+            : items.map((card) => (
+                <FeedCard
+                  key={card.id}
+                  title={card.title}
+                  description={card.description}
+                  suggestedAction={card.suggested_action}
+                  href={card.href}
+                  meta={card.meta}
+                />
+              ))}
         </div>
       </div>
     </section>

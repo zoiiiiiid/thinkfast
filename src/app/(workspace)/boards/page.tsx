@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Board = {
   id: string;
@@ -10,6 +11,24 @@ type Board = {
   description?: string | null;
   created_at?: string;
 };
+
+function BoardCardSkeleton() {
+  return (
+    <div className="rounded-[1.5rem] border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-3">
+          <Skeleton className="h-5 w-2/5" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+
+        <Skeleton className="h-7 w-16 rounded-full" />
+      </div>
+
+      <Skeleton className="mt-4 h-3 w-28" />
+    </div>
+  );
+}
 
 export default function BoardsPage() {
   const [boards, setBoards] = useState<Board[]>([]);
@@ -154,9 +173,16 @@ export default function BoardsPage() {
 
       <section>
         {loading ? (
-          <div className="rounded-[1.75rem] border bg-card p-8 text-center text-sm text-muted-foreground">
-            Loading boards...
-          </div>
+          <>
+            <p className="sr-only" role="status">
+              Loading boards...
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <BoardCardSkeleton key={index} />
+              ))}
+            </div>
+          </>
         ) : boards.length === 0 ? (
           <div className="rounded-[1.75rem] border bg-card p-8 text-center">
             <h2 className="text-base font-medium">No boards yet</h2>
