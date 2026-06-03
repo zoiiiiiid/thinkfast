@@ -33,6 +33,11 @@ export type IdeaCheckResult = {
   quickOptions: string[];
 };
 
+export type ConversationHistoryItem = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type GenerationRequest = {
   prompt: string;
   redactedPrompt: string;
@@ -40,6 +45,7 @@ export type GenerationRequest = {
   mode: AiMode;
   preferredTone?: string;
   ideaAnswers?: string[];
+  conversationHistory?: ConversationHistoryItem[];
 };
 
 export type GenerationResult = {

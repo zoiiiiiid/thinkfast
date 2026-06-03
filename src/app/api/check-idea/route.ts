@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { checkIdeaPrompt } from "@/lib/idea-check";
+import { checkIdea } from "@/lib/idea-check";
 import type { CreateTemplate } from "@/lib/types";
 
 const schema = z.object({
@@ -9,10 +9,39 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
-  const parsed = schema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: "Invalid prompt" }, { status: 400 });
+  try {
+    const body = await req.json();
+    const parsed = schema.safeParse(body);
 
-  return NextResponse.json(
-    checkIdeaPrompt(parsed.data.prompt, parsed.data.template as CreateTemplate | undefined),
-  );
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          ideaPromptNeeded: false,
+          reason: "Invalid prompt.",
+          suggestedQuestions: [],
+          quickOptions: [],
+        },
+        { status: 200 }
+      );
+    }
+
+    const result = checkIdea(
+      parsed.data.prompt,
+      (parsed.data.template ?? "Custom Prompt") as CreateTemplate
+    );
+
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error("Idea check route error:", error);
+
+    return NextResponse.json(
+      {
+        ideaPromptNeeded: false,
+        reason: "Idea check failed, but the prompt can continue.",
+        suggestedQuestions: [],
+        quickOptions: [],
+      },
+      { status: 200 }
+    );
+  }
 }
