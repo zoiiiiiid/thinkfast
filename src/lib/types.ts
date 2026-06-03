@@ -54,6 +54,10 @@ export type GenerationResult = {
   output: string;
   tags: string[];
   suggestedNextAction: string;
+  modelUsed?: string;
+  modelLabel?: string;
+  generationMode?: "live" | "fallback" | "mock";
+  fallbackNotice?: string;
   followUpCard: {
     cardType: string;
     title: string;

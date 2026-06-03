@@ -1,115 +1,203 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { BoardCard } from "@/components/cards";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 type Board = {
   id: string;
   name: string;
-  description?: string;
-  conversation_count?: number;
+  description?: string | null;
+  created_at?: string;
 };
 
 export default function BoardsPage() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
-  const [status, setStatus] = useState("");
-
-  async function loadBoards() {
-    try {
-      const res = await fetch("/api/boards");
-      const data = res.ok ? await res.json() : [];
-      setBoards(Array.isArray(data) ? data : data.boards ?? []);
-    } catch (error) {
-      console.error("Unable to load boards:", error);
-      setBoards([]);
-    }
-  }
-
-  async function createBoard(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim()) return;
-
-    setIsCreating(true);
-    setStatus("");
-
-    try {
-      const res = await fetch("/api/boards", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() }),
-      });
-
-      if (!res.ok) throw new Error("Unable to create board.");
-
-      setName("");
-      setDescription("");
-      setStatus("Board created.");
-      await loadBoards();
-    } catch (error) {
-      console.error(error);
-      setStatus("Unable to create board.");
-    } finally {
-      setIsCreating(false);
-    }
-  }
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     void loadBoards();
   }, []);
 
-  return (
-    <section className="mx-auto max-w-5xl space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Boards</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Save conversations into clean folders.</p>
-        </div>
-        <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground">{boards.length} boards</span>
-      </div>
+  async function loadBoards() {
+    setLoading(true);
+    setError("");
 
-      <form onSubmit={createBoard} className="rounded-[1.5rem] border bg-card p-3 shadow-sm">
-        <div className="grid gap-2 md:grid-cols-[1fr_1.4fr_auto]">
-          <input
-            className="h-10 rounded-full border bg-background px-4 text-sm outline-none transition focus:border-primary"
-            placeholder="Board name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <input
-            className="h-10 rounded-full border bg-background px-4 text-sm outline-none transition focus:border-primary"
-            placeholder="Description optional"
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-          />
-          <Button type="submit" size="lg" disabled={!name.trim() || isCreating}>
-            {isCreating ? "Creating" : "Create"}
+    try {
+      const res = await fetch("/api/boards", {
+        cache: "no-store",
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || data?.ok === false) {
+        setBoards([]);
+        setError(data?.error || "Unable to load boards.");
+        return;
+      }
+
+      const nextBoards = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.boards)
+          ? data.boards
+          : [];
+
+      setBoards(nextBoards);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Unable to load boards:", error);
+      }
+      setBoards([]);
+      setError("Unable to load boards.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createBoard() {
+    const cleanName = name.trim();
+
+    if (!cleanName || creating) return;
+
+    setCreating(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/boards", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: cleanName,
+          description: description.trim() || null,
+        }),
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || data?.ok === false) {
+        setError(data?.error || "Unable to create board.");
+        return;
+      }
+
+      const createdBoard = data?.board ?? data;
+
+      if (createdBoard?.id) {
+        setBoards((current) => [createdBoard, ...current]);
+      } else {
+        await loadBoards();
+      }
+
+      setName("");
+      setDescription("");
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Create board error:", error);
+      }
+      setError("Unable to create board.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 md:px-8">
+      <section className="rounded-[1.75rem] border bg-background p-5 shadow-sm">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Boards</h1>
+            <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              Organize your ThinkFast conversations into focused spaces. Open a
+              board to preview saved conversations or continue them in the
+              workspace.
+            </p>
+          </div>
+
+          <Button variant="outline" onClick={() => void loadBoards()}>
+            Refresh
           </Button>
         </div>
-      </form>
 
-      {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {boards.map((board) => (
-          <BoardCard
-            key={board.id}
-            id={board.id}
-            name={board.name}
-            description={board.description || ""}
-            count={board.conversation_count ?? 0}
+        <div className="mt-5 grid gap-3 md:grid-cols-[1fr_1.4fr_auto]">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Board name"
+            className="rounded-2xl border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
           />
-        ))}
-      </div>
 
-      {!boards.length ? (
-        <div className="rounded-[1.5rem] border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
-          No boards yet. Create one, then save generated conversations from the workspace.
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Short description, optional"
+            className="rounded-2xl border bg-background px-4 py-3 text-sm outline-none transition focus:border-primary"
+          />
+
+          <Button
+            onClick={createBoard}
+            disabled={!name.trim() || creating}
+            className="rounded-2xl px-5"
+          >
+            {creating ? "Creating..." : "Create"}
+          </Button>
         </div>
-      ) : null}
-    </section>
+
+        {error ? (
+          <p className="mt-3 text-sm text-red-600">{error}</p>
+        ) : null}
+      </section>
+
+      <section>
+        {loading ? (
+          <div className="rounded-[1.75rem] border bg-card p-8 text-center text-sm text-muted-foreground">
+            Loading boards...
+          </div>
+        ) : boards.length === 0 ? (
+          <div className="rounded-[1.75rem] border bg-card p-8 text-center">
+            <h2 className="text-base font-medium">No boards yet</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Create your first board to start organizing saved conversations.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2">
+            {boards.map((board) => (
+              <Link
+                key={board.id}
+                href={`/boards/${board.id}`}
+                className="group rounded-[1.5rem] border bg-card p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-semibold tracking-tight">
+                      {board.name}
+                    </h2>
+
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
+                      {board.description || "Open this board to view and continue saved ThinkFast conversations."}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition group-hover:border-primary/40 group-hover:text-primary">
+                    Open
+                  </span>
+                </div>
+
+                {board.created_at ? (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    Created {new Date(board.created_at).toLocaleDateString()}
+                  </p>
+                ) : null}
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+    </main>
   );
 }

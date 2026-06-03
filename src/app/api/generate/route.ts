@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { MODE_OPTIONS, TEMPLATE_OPTIONS } from "@/lib/constants";
 import { generateThinkFastOutput } from "@/lib/openai";
+import { requireUser } from "@/lib/server-security";
 import type { GenerationRequest } from "@/lib/types";
 
 const historySchema = z.object({
@@ -21,7 +22,10 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const auth = await requireUser();
+    if (auth.response) return auth.response;
+
+    const body = await req.json().catch(() => null);
     const parsed = schema.safeParse(body);
 
     if (!parsed.success) {
@@ -52,7 +56,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Generate route error:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Generate route error:", error);
+    }
 
     return NextResponse.json(
       {

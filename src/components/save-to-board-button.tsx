@@ -5,6 +5,17 @@ import { Button } from "@/components/ui/button";
 
 type Board = { id: string; name: string };
 
+async function readJsonSafe(response: Response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function SaveToBoardButton({ conversationId }: { conversationId: string | null }) {
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardId, setBoardId] = useState("");
@@ -18,11 +29,13 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
     async function loadBoards() {
       try {
         const res = await fetch("/api/boards");
-        const data = res.ok ? await res.json() : [];
-        const list = Array.isArray(data) ? data : data.boards ?? [];
+        const data = res.ok ? await readJsonSafe(res) : null;
+        const list = Array.isArray(data) ? data : Array.isArray(data?.boards) ? data.boards : [];
         if (mounted) setBoards(list);
       } catch (error) {
-        console.error("Failed to load boards:", error);
+        if (process.env.NODE_ENV !== "production") {
+          console.error("Failed to load boards:", error);
+        }
         if (mounted) setBoards([]);
       } finally {
         if (mounted) setIsLoadingBoards(false);
@@ -47,10 +60,12 @@ export function SaveToBoardButton({ conversationId }: { conversationId: string |
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ conversationId, boardId }),
       });
-      const json = await res.json();
-      setStatus(res.ok && json.ok ? "Saved" : json.error || json.message || "Unable to save");
+      const json = await readJsonSafe(res);
+      setStatus(res.ok && json?.ok ? "Saved" : json?.error || json?.message || "Unable to save");
     } catch (error) {
-      console.error("Save to board error:", error);
+      if (process.env.NODE_ENV !== "production") {
+        console.error("Save to board error:", error);
+      }
       setStatus("Unable to save");
     } finally {
       setIsSaving(false);

@@ -4,80 +4,172 @@ import { z } from "zod";
 import { mockStore } from "@/lib/mock-store";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const schema = z.object({
-  name: z.string().min(1),
-  description: z.string().default(""),
+const boardSchema = z.object({
+  name: z.string().min(1, "Board name is required."),
+  description: z.string().optional().nullable(),
 });
 
+function mockBoards() {
+  return mockStore.boards.map((board) => ({
+    ...board,
+    conversation_count: mockStore.conversationBoards.filter((row) => row.board_id === board.id).length,
+  }));
+}
+
 export async function GET() {
-  const supabase = await createSupabaseServerClient();
+  try {
+    const supabase = await createSupabaseServerClient();
 
-  if (!supabase) {
-    return NextResponse.json(
-      mockStore.boards.map((board) => ({
+    if (!supabase) {
+      return NextResponse.json({
+        ok: true,
+        boards: mockBoards(),
+        mode: "mock",
+      });
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({
+        ok: false,
+        boards: [],
+        error: "Not authenticated.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("boards")
+      .select("id, name, description, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Boards GET error:", error);
+
+      return NextResponse.json({
+        ok: false,
+        boards: [],
+        error: error.message,
+      });
+    }
+
+    const boardIds = (data ?? []).map((board) => board.id);
+    let counts = new Map<string, number>();
+
+    if (boardIds.length) {
+      const { data: mappings } = await supabase
+        .from("conversation_boards")
+        .select("board_id")
+        .in("board_id", boardIds);
+
+      counts = new Map<string, number>();
+      for (const row of mappings ?? []) {
+        counts.set(row.board_id, (counts.get(row.board_id) ?? 0) + 1);
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      boards: (data ?? []).map((board) => ({
         ...board,
-        conversation_count: mockStore.conversationBoards.filter((row) => row.board_id === board.id).length,
+        conversation_count: counts.get(board.id) ?? 0,
       })),
-    );
+    });
+  } catch (error) {
+    console.error("Boards GET route error:", error);
+
+    return NextResponse.json({
+      ok: false,
+      boards: [],
+      error: error instanceof Error ? error.message : "Unable to load boards.",
+    });
   }
-
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return NextResponse.json([]);
-
-  const { data: boards, error } = await supabase
-    .from("boards")
-    .select("id, name, description, created_at")
-    .eq("user_id", userData.user.id)
-    .order("created_at", { ascending: false });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  const boardIds = (boards ?? []).map((board) => board.id);
-  if (!boardIds.length) return NextResponse.json([]);
-
-  const { data: mappings } = await supabase
-    .from("conversation_boards")
-    .select("board_id")
-    .in("board_id", boardIds);
-
-  const counts = new Map<string, number>();
-  (mappings ?? []).forEach((row) => counts.set(row.board_id, (counts.get(row.board_id) ?? 0) + 1));
-
-  return NextResponse.json((boards ?? []).map((board) => ({ ...board, conversation_count: counts.get(board.id) ?? 0 })));
 }
 
 export async function POST(req: Request) {
-  const payload = schema.safeParse(await req.json());
-  if (!payload.success) return NextResponse.json({ error: "Invalid board payload" }, { status: 400 });
+  try {
+    const body = await req.json().catch(() => null);
+    const parsed = boardSchema.safeParse(body);
 
-  const supabase = await createSupabaseServerClient();
-  const now = new Date().toISOString();
+    if (!parsed.success) {
+      return NextResponse.json({
+        ok: false,
+        error: "Invalid board data.",
+        issues: parsed.error.flatten(),
+      });
+    }
 
-  if (!supabase) {
-    const board = {
-      id: randomUUID(),
-      user_id: "mock-user",
-      name: payload.data.name,
-      description: payload.data.description,
-      created_at: now,
-    };
-    mockStore.boards.unshift(board);
-    return NextResponse.json(board);
+    const supabase = await createSupabaseServerClient();
+    const now = new Date().toISOString();
+    const { name, description } = parsed.data;
+
+    if (!supabase) {
+      const board = {
+        id: randomUUID(),
+        user_id: "mock-user",
+        name: name.trim(),
+        description: description?.trim() || "",
+        created_at: now,
+        conversation_count: 0,
+      };
+
+      mockStore.boards.unshift(board);
+
+      return NextResponse.json({
+        ok: true,
+        board,
+        mode: "mock",
+      });
+    }
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({
+        ok: false,
+        error: "Not authenticated.",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("boards")
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        description: description?.trim() || null,
+      })
+      .select("id, name, description, created_at")
+      .single();
+
+    if (error) {
+      console.error("Boards POST error:", error);
+
+      return NextResponse.json({
+        ok: false,
+        error: error.message,
+      });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      board: {
+        ...data,
+        conversation_count: 0,
+      },
+    });
+  } catch (error) {
+    console.error("Boards POST route error:", error);
+
+    return NextResponse.json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Unable to create board.",
+    });
   }
-
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const board = {
-    id: randomUUID(),
-    user_id: userData.user.id,
-    name: payload.data.name,
-    description: payload.data.description,
-    created_at: now,
-  };
-
-  const { error } = await supabase.from("boards").insert(board);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ ...board, conversation_count: 0 });
 }

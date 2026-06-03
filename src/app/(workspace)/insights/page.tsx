@@ -11,13 +11,45 @@ type Insights = {
   boardsCreated: number;
 };
 
+const emptyInsights: Insights = {
+  outputsGenerated: 0,
+  commonTopics: [],
+  privacyWarnings: 0,
+  ideaPromptsTriggered: 0,
+  recentModes: [],
+  boardsCreated: 0,
+};
+
+async function loadInsights(): Promise<Insights> {
+  try {
+    const response = await fetch("/api/insights", { cache: "no-store" });
+    const text = await response.text().catch(() => "");
+
+    if (!response.ok || !text) return emptyInsights;
+
+    return JSON.parse(text) as Insights;
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Unable to load insights:", error);
+    }
+
+    return emptyInsights;
+  }
+}
+
 export default function InsightsPage() {
   const [insights, setInsights] = useState<Insights | null>(null);
 
   useEffect(() => {
-    fetch("/api/insights")
-      .then((r) => r.json())
-      .then(setInsights);
+    let mounted = true;
+
+    void loadInsights().then((data) => {
+      if (mounted) setInsights(data);
+    });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (!insights) return <p>Loading insights...</p>;

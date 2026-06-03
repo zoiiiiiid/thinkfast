@@ -20,6 +20,9 @@ type ChatMessage = {
   title?: string;
   summary?: string;
   tags?: string[];
+  modelLabel?: string;
+  generationMode?: "live" | "fallback" | "mock";
+  fallbackNotice?: string;
 };
 
 type PendingRequest = {
@@ -29,6 +32,25 @@ type PendingRequest = {
 };
 
 type PrivacyDecision = "protect" | "privacy-first" | "continue";
+
+type LoadedConversation = {
+  id: string;
+  title?: string | null;
+  summary?: string | null;
+  original_prompt?: string | null;
+  redacted_prompt?: string | null;
+  ai_response?: string | null;
+  selected_mode?: string | null;
+  privacy_risk?: string | null;
+  idea_prompt_needed?: boolean | null;
+};
+
+type LoadConversationResponse = {
+  ok?: boolean;
+  conversation?: LoadedConversation | null;
+  messages?: ChatMessage[];
+  error?: string;
+};
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -40,6 +62,10 @@ async function readJson<T>(response: Response): Promise<T> {
 
   if (!response.ok) {
     throw new Error(data?.error || data?.message || "Request failed");
+  }
+
+  if (data && typeof data === "object" && "ok" in data && data.ok === false) {
+    throw new Error(data.error || data.message || "Request failed");
   }
 
   return data as T;
@@ -64,9 +90,10 @@ function riskClass(risk?: string) {
 }
 
 function statusText(
-  loading: "checking" | "generating" | "saving" | null,
-  pending: PendingRequest | null
+  loading: "checking" | "generating" | "saving" | "loading" | null,
+  pending: PendingRequest | null,
 ) {
+  if (loading === "loading") return "Loading";
   if (loading === "checking") return "Checking";
   if (loading === "generating") return "Generating";
   if (loading === "saving") return "Saving";
@@ -77,8 +104,12 @@ function statusText(
 
 function getComposerHint(
   pending: PendingRequest | null,
-  loading: "checking" | "generating" | "saving" | null
+  loading: "checking" | "generating" | "saving" | "loading" | null,
 ) {
+  if (loading === "loading") {
+    return "Loading your saved ThinkFast conversation.";
+  }
+
   if (loading === "checking") {
     return "Checking if your prompt needs your idea first.";
   }
@@ -101,7 +132,7 @@ function getComposerHint(
 function compactHistory(messages: ChatMessage[]) {
   return messages
     .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-8)
+    .slice(-10)
     .map((message) => ({
       role: message.role as "user" | "assistant",
       content: [message.title, message.summary, message.content]
@@ -110,15 +141,148 @@ function compactHistory(messages: ChatMessage[]) {
     }));
 }
 
+function normalizeLoadedMessages(
+  conversation: LoadedConversation,
+  messages?: ChatMessage[],
+): ChatMessage[] {
+  if (messages?.length) {
+    return messages.map((message) => ({
+      ...message,
+      id: message.id || makeId(),
+    }));
+  }
+
+  const fallbackMessages: ChatMessage[] = [];
+  const prompt = conversation.redacted_prompt || conversation.original_prompt;
+
+  if (prompt) {
+    fallbackMessages.push({
+      id: makeId(),
+      role: "user",
+      content: prompt,
+    });
+  }
+
+  if (conversation.ai_response) {
+    fallbackMessages.push({
+      id: makeId(),
+      role: "assistant",
+      title: conversation.title ?? undefined,
+      summary: conversation.summary ?? undefined,
+      content: conversation.ai_response,
+    });
+  }
+
+  return fallbackMessages;
+}
+
+function isAiMode(value: string | null | undefined): value is AiMode {
+  return ["auto", "fast", "deep", "creative", "study-coach", "privacy-first"].includes(
+    value ?? "",
+  );
+}
+function renderInlineMarkdown(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return (
+        <strong key={index} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+}
+
+function AssistantText({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const blocks: React.ReactNode[] = [];
+  let bullets: string[] = [];
+
+  function flushBullets() {
+    if (!bullets.length) return;
+
+    blocks.push(
+      <ul key={`ul-${blocks.length}`} className="my-3 list-disc space-y-1 pl-5">
+        {bullets.map((bullet, index) => (
+          <li key={index}>{renderInlineMarkdown(bullet)}</li>
+        ))}
+      </ul>
+    );
+
+    bullets = [];
+  }
+
+  lines.forEach((rawLine, index) => {
+    const line = rawLine.trim();
+
+    if (!line) {
+      flushBullets();
+      return;
+    }
+
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      bullets.push(line.slice(2).trim());
+      return;
+    }
+
+    flushBullets();
+
+    if (line.startsWith("### ")) {
+      blocks.push(
+        <h3 key={index} className="mt-5 text-base font-semibold tracking-tight">
+          {renderInlineMarkdown(line.replace(/^###\s+/, ""))}
+        </h3>
+      );
+      return;
+    }
+
+    if (line.startsWith("## ")) {
+      blocks.push(
+        <h2 key={index} className="mt-6 text-lg font-semibold tracking-tight">
+          {renderInlineMarkdown(line.replace(/^##\s+/, ""))}
+        </h2>
+      );
+      return;
+    }
+
+    if (line.startsWith("# ")) {
+      blocks.push(
+        <h1 key={index} className="mt-6 text-xl font-semibold tracking-tight">
+          {renderInlineMarkdown(line.replace(/^#\s+/, ""))}
+        </h1>
+      );
+      return;
+    }
+
+    blocks.push(
+      <p key={index} className="my-2 leading-7">
+        {renderInlineMarkdown(line)}
+      </p>
+    );
+  });
+
+  flushBullets();
+
+  return <div className="text-sm leading-7">{blocks}</div>;
+}
+
 export function WorkspaceClient({
   initialTemplate,
+  initialConversationId,
+  initialMode,
 }: {
   initialTemplate?: CreateTemplate;
+  initialConversationId?: string;
+  initialMode?: AiMode;
 }) {
   const [template, setTemplate] = useState<CreateTemplate>(
-    initialTemplate ?? "Reflection"
+    initialTemplate ?? "Reflection",
   );
-  const [mode, setMode] = useState<AiMode>("auto");
+  const [mode, setMode] = useState<AiMode>(initialMode ?? "auto");
   const [input, setInput] = useState("");
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -126,7 +290,7 @@ export function WorkspaceClient({
 
   const [pending, setPending] = useState<PendingRequest | null>(null);
   const [pendingUserMessageId, setPendingUserMessageId] = useState<string | null>(
-    null
+    null,
   );
 
   const [privacyDecision, setPrivacyDecision] =
@@ -134,15 +298,15 @@ export function WorkspaceClient({
   const [ideaAnswer, setIdeaAnswer] = useState("");
 
   const [latestConversationId, setLatestConversationId] = useState<string | null>(
-    null
+    initialConversationId ?? null,
   );
   const [latestOutput, setLatestOutput] = useState<GenerationResult | null>(
-    null
+    null,
   );
 
   const [loading, setLoading] = useState<
-    "checking" | "generating" | "saving" | null
-  >(null);
+    "checking" | "generating" | "saving" | "loading" | null
+  >(initialConversationId ? "loading" : null);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const ideaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -157,6 +321,82 @@ export function WorkspaceClient({
       setTimeout(() => ideaRef.current?.focus(), 80);
     }
   }, [pending]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadConversation() {
+      if (!initialConversationId) return;
+
+      setLoading("loading");
+
+      try {
+        const response = await fetch(`/api/conversations/${initialConversationId}`);
+        const data = await readJson<LoadConversationResponse>(response);
+
+        if (!mounted) return;
+
+        if (!data.conversation) {
+          throw new Error(data.error || "Conversation could not be loaded.");
+        }
+
+        const loadedMessages = normalizeLoadedMessages(
+          data.conversation,
+          data.messages,
+        );
+
+        messagesRef.current = loadedMessages;
+        setMessages(loadedMessages);
+        setLatestConversationId(data.conversation.id);
+
+        if (isAiMode(data.conversation.selected_mode)) {
+          setMode(data.conversation.selected_mode);
+        }
+
+        if (data.conversation.ai_response) {
+          setLatestOutput({
+            title: data.conversation.title || "Saved conversation",
+            summary: data.conversation.summary || "Loaded saved ThinkFast conversation.",
+            output: data.conversation.ai_response,
+            tags: [data.conversation.selected_mode || "auto"],
+            suggestedNextAction: "Continue this conversation.",
+            modelLabel: data.conversation.selected_mode || "Saved",
+            generationMode: "live",
+            followUpCard: {
+              cardType: "continue",
+              title: "Continue conversation",
+              description: "This conversation was reopened from a board.",
+              suggestedAction: "Continue",
+            },
+          });
+        }
+      } catch (error) {
+        console.error(error);
+
+        if (!mounted) return;
+
+        const systemMessage: ChatMessage = {
+          id: makeId(),
+          role: "system",
+          content:
+            error instanceof Error
+              ? error.message
+              : "The saved conversation could not be loaded.",
+        };
+
+        messagesRef.current = [systemMessage];
+        setMessages([systemMessage]);
+      } finally {
+        if (mounted) setLoading(null);
+      }
+    }
+
+    void loadConversation();
+
+    return () => {
+      mounted = false;
+    };
+  }, [initialConversationId]);
 
   const needsIdea = Boolean(pending?.idea.ideaPromptNeeded);
   const needsPrivacy = Boolean(pending && pending.privacy.privacyRisk !== "low");
@@ -174,7 +414,7 @@ export function WorkspaceClient({
   }, [pending, ideaAnswer]);
 
   const canGeneratePending = Boolean(
-    pending && privacyReady && ideaReady && !loading
+    pending && privacyReady && ideaReady && !loading,
   );
 
   const quickOptions = pending?.idea.quickOptions?.length
@@ -196,7 +436,7 @@ export function WorkspaceClient({
 
   function removeMessageById(messageId: string) {
     const nextMessages = messagesRef.current.filter(
-      (message) => message.id !== messageId
+      (message) => message.id !== messageId,
     );
 
     messagesRef.current = nextMessages;
@@ -207,26 +447,41 @@ export function WorkspaceClient({
     result: GenerationResult,
     request: PendingRequest,
     usedPrompt: string,
-    usedMode: AiMode
+    usedMode: AiMode,
   ) {
     setLoading("saving");
 
-    const res = await fetch("/api/conversations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: result.title || `${template} Output`,
-        originalPrompt: null,
-        redactedPrompt: usedPrompt,
-        aiResponse: result.output || "",
-        summary: result.summary || "Generated ThinkFast output.",
-        selectedMode: usedMode,
-        privacyRisk: request.privacy.privacyRisk,
-        ideaPromptNeeded: request.idea.ideaPromptNeeded,
-        followUpCard: result.followUpCard,
-        template,
-      }),
-    });
+    const payload = {
+      title: result.title || `${template} Output`,
+      originalPrompt: null,
+      redactedPrompt: usedPrompt,
+      aiResponse: result.output || "",
+      summary: result.summary || "Generated ThinkFast output.",
+      selectedMode: usedMode,
+      privacyRisk: request.privacy.privacyRisk,
+      ideaPromptNeeded: request.idea.ideaPromptNeeded,
+      followUpCard: result.followUpCard,
+      template,
+      messages: messagesRef.current.map((message) => ({
+        role: message.role,
+        content: message.content,
+        title: message.title ?? null,
+        summary: message.summary ?? null,
+        tags: message.tags ?? [],
+      })),
+    };
+
+    const existingConversationId = latestConversationId;
+    const res = await fetch(
+      existingConversationId
+        ? `/api/conversations/${existingConversationId}`
+        : "/api/conversations",
+      {
+        method: existingConversationId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
 
     const json = await readJson<{
       ok?: boolean;
@@ -234,7 +489,7 @@ export function WorkspaceClient({
       conversation?: { id: string };
     }>(res);
 
-    const id = json.conversationId ?? json.conversation?.id ?? null;
+    const id = json.conversationId ?? json.conversation?.id ?? existingConversationId ?? null;
     setLatestConversationId(id);
   }
 
@@ -243,7 +498,7 @@ export function WorkspaceClient({
     options?: {
       ideaOverride?: string;
       privacyDecisionOverride?: PrivacyDecision;
-    }
+    },
   ) {
     const selectedIdea = options?.ideaOverride ?? ideaAnswer.trim();
 
@@ -303,6 +558,9 @@ export function WorkspaceClient({
         summary: result.summary,
         content: result.output,
         tags: result.tags,
+        modelLabel: result.modelLabel,
+        generationMode: result.generationMode,
+        fallbackNotice: result.fallbackNotice,
       });
 
       await saveConversation(result, request, promptToGenerate, usedMode);
@@ -327,7 +585,6 @@ export function WorkspaceClient({
   }
 
   async function runChecks(prompt: string) {
-    setLatestConversationId(null);
     setLatestOutput(null);
     setPending(null);
     setIdeaAnswer("");
@@ -499,9 +756,23 @@ export function WorkspaceClient({
                     </p>
                   ) : null}
 
-                  <div className="whitespace-pre-wrap text-sm leading-7">
-                    {message.content}
-                  </div>
+                  <AssistantText content={message.content} />
+
+                  {message.modelLabel ? (
+                    <div className="mt-4 rounded-xl border bg-muted/30 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        {message.generationMode === "fallback"
+                          ? "Fallback used"
+                          : message.generationMode === "mock"
+                            ? "Demo mode"
+                            : "Generated"}
+                      </span>{" "}
+                      with {message.modelLabel}.
+                      {message.fallbackNotice ? (
+                        <span className="block">{message.fallbackNotice}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   {message.tags?.length ? (
                     <div className="mt-4 flex flex-wrap gap-1.5">
@@ -541,7 +812,7 @@ export function WorkspaceClient({
 
                 <span
                   className={`rounded-full border px-3 py-1 text-xs font-medium ${riskClass(
-                    pending.privacy.privacyRisk
+                    pending.privacy.privacyRisk,
                   )}`}
                 >
                   Privacy: {riskLabel(pending.privacy.privacyRisk)}

@@ -1,25 +1,36 @@
 import type { CreateTemplate, IdeaCheckResult } from "@/lib/types";
 
 const TASK_REQUEST_PATTERNS = [
-  /\b(make|write|create|do|generate)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer)\b/i,
-  /\bgive\s+me\s+(an?\s+)?(idea|business idea|topic|answer|caption|outline)\b/i,
-  /\bhelp\s+me\s+(make|write|create|do|answer|draft)\b/i,
-  /\b(can you|please)\s+(make|write|create|generate|draft)\b/i,
+  /\b(make|write|create|do|generate|draft)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer|outline)\b/i,
+  /\bgive\s+me\s+(an?\s+)?(idea|ideas|business idea|business ideas|topic|topics|answer|caption|outline)\b/i,
+  /\bsuggest\s+(an?\s+)?(idea|ideas|topic|topics|business idea|business ideas)\b/i,
+  /\bhelp\s+me\s+(make|write|create|do|answer|draft|generate|think of)\b/i,
+  /\b(can you|please)\s+(make|write|create|generate|draft|suggest|give)\b/i,
 ];
 
 const VERY_VAGUE_PATTERNS = [
-  /^\s*(make|write|create|do|generate)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer)?\s*\.?\s*$/i,
-  /^\s*(give me|suggest)\s+(ideas|something|a topic|an answer|a business idea)\s*\.?\s*$/i,
-  /^\s*help me with (this|my assignment|my homework|my project)\s*\.?\s*$/i,
+  /^\s*(make|write|create|do|generate|draft)\s+(me\s+)?(a|an|my)?\s*(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer|outline)?\s*[.!?]?\s*$/i,
+  /^\s*(give me|suggest)\s+(ideas|something|a topic|an answer|a business idea|business ideas)\s*[.!?]?\s*$/i,
+  /^\s*help me with (this|my assignment|my homework|my project)\s*[.!?]?\s*$/i,
 ];
 
 const USER_DIRECTION_SIGNALS = [
-  /\bi\s+(think|believe|feel|want|need|prefer|realize|learned|agree|disagree|argue|plan|experienced|noticed)\b/i,
-  /\bmy\s+(idea|opinion|experience|example|goal|problem|audience|view|point|stand|argument|realization|take)\b/i,
-  /\bthe\s+(main\s+)?(idea|point|goal|audience|purpose|argument|stand|problem)\s+is\b/i,
+  /\bi\s+(think|believe|feel|want|need|prefer|realize|realized|learned|agree|disagree|argue|plan|experienced|noticed|observed|chose|decided)\b/i,
+  /\bmy\s+(idea|opinion|experience|example|goal|problem|audience|view|point|stand|argument|realization|take|main point|thesis)\b/i,
+  /\bthe\s+(main\s+)?(idea|point|goal|audience|purpose|argument|stand|problem|issue)\s+is\b/i,
   /\bbecause\b/i,
-  /\bshould\s+(focus|argue|explain|show|emphasize)\b/i,
+  /\bshould\s+(focus|argue|explain|show|emphasize|sound|include)\b/i,
   /\bmake it sound\b/i,
+  /\btarget\s+(users?|audience|market)\b/i,
+  /\bfor\s+(students|student renters|small businesses|nurses|teachers|parents|customers|fans|buyers|users)\b/i,
+];
+
+const SPECIFIC_ANGLE_SIGNALS = [
+  /\b(how|why|whether|impact|effects?|replace|dependence|future|next\s+\d+\s+years?|students|workers|human work|real human work|philippines|filipino|bacolod|katipunan|education|privacy|ethics|society|portfolio|github|mvp|verified|renters|condo listings|target users?)\b/i,
+  /\bnear\s+[A-Z][a-zA-Z.'-]+/,
+  /\bfor\s+[a-zA-Z0-9.'-]+\s+[a-zA-Z0-9.'-]+/i,
+  /\bwho\s+(struggle|need|want|cannot|lack|have|are)\b/i,
+  /\bthat\s+(can|will|would|helps?|solves?|addresses?|improves?)\b/i,
 ];
 
 const GENERIC_TOPICS = new Set([
@@ -34,6 +45,10 @@ const GENERIC_TOPICS = new Set([
   "privacy",
   "life",
   "love",
+  "science",
+  "society",
+  "marketing",
+  "management",
 ]);
 
 function normalize(text: string) {
@@ -41,22 +56,35 @@ function normalize(text: string) {
 }
 
 function countWords(text: string) {
-  return normalize(text).split(" ").filter(Boolean).length;
+  const clean = normalize(text);
+  if (!clean) return 0;
+  return clean.split(" ").filter(Boolean).length;
+}
+
+function stripRequestWords(text: string) {
+  return text
+    .replace(/^(can you|please)\s+/i, "")
+    .replace(/^(make|write|create|do|generate|draft|give|suggest|help)\s+(me\s+)?(a|an|my)?\s*/i, "")
+    .replace(/^me\s+/i, "")
+    .replace(/\b(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer|answer|idea|ideas|business idea|business ideas|topic|topics|outline)\b/gi, "")
+    .replace(/[?.!]+$/g, "")
+    .trim();
 }
 
 function extractSubject(prompt: string) {
   const clean = normalize(prompt);
 
-  const aboutMatch = clean.match(/\b(?:about|on|regarding|for|based on)\b\s+(.+)/i);
+  const aboutMatch = clean.match(/\b(?:about|on|regarding|based on)\b\s+(.+)/i);
   if (aboutMatch?.[1]) {
     return aboutMatch[1].replace(/[?.!]+$/g, "").trim();
   }
 
-  return clean
-    .replace(/^(make|write|create|do|generate|give|help)\s+(me\s+)?(a|an|my)?\s*/i, "")
-    .replace(/\b(reflection|essay|project|presentation|plan|proposal|caption|email|report|script|reviewer|answer|idea)\b/gi, "")
-    .replace(/[?.!]+$/g, "")
-    .trim();
+  const specificForMatch = clean.match(/\bfor\s+(.+)/i);
+  if (specificForMatch?.[1] && countWords(specificForMatch[1]) >= 3) {
+    return specificForMatch[1].replace(/[?.!]+$/g, "").trim();
+  }
+
+  return stripRequestWords(clean);
 }
 
 function isGenericSubject(subject: string) {
@@ -68,15 +96,13 @@ function isGenericSubject(subject: string) {
 }
 
 function hasSpecificAngle(prompt: string, subject: string) {
-  const lower = `${prompt} ${subject}`.toLowerCase();
+  const combined = `${prompt} ${subject}`;
   const subjectWords = countWords(subject);
 
-  if (subjectWords >= 6) return true;
+  if (subjectWords >= 7) return true;
+  if (SPECIFIC_ANGLE_SIGNALS.some((pattern) => pattern.test(combined))) return true;
 
-  return (
-    subjectWords >= 4 &&
-    /\b(how|why|whether|impact|effects?|replace|dependence|future|next\s+\d+\s+years?|students|workers|human work|real human work|philippines|bacolod|education|privacy|ethics|society)\b/i.test(lower)
-  );
+  return subjectWords >= 4 && !isGenericSubject(subject);
 }
 
 function getSubjectLabel(subject: string) {
@@ -101,7 +127,7 @@ function questionsFor(template: CreateTemplate | undefined, subject: string): st
       ];
     case "Business Idea":
       return [
-        `What specific problem should this idea solve?`,
+        "What specific problem should this idea solve?",
         "Who exactly is the target user?",
         "What makes the idea different from existing tools?",
       ];
@@ -146,13 +172,13 @@ function optionsFor(template: CreateTemplate | undefined, subject: string): stri
       return [
         `I want to connect ${topic} to my own experience or observation.`,
         `I want to explain what I learned or realized about ${topic}.`,
-        `I want the reflection to sound natural and not generic.`,
+        "I want the reflection to sound natural and not generic.",
       ];
     case "Essay":
       return [
         `My thesis is that ${topic} has both benefits and risks.`,
         `I want to argue that ${topic} should be used responsibly.`,
-        `I want a balanced essay that explains both sides clearly.`,
+        "I want a balanced essay that explains both sides clearly.",
       ];
     case "Business Idea":
       return [
@@ -180,10 +206,13 @@ export function checkIdeaPrompt(prompt: string, template?: CreateTemplate): Idea
   const genericSubject = isGenericSubject(subject);
   const specificAngle = hasSpecificAngle(clean, subject);
 
+  const asksForOriginalIdea = /\b(give|suggest|think of|come up with)\b.*\b(idea|ideas|business idea|project idea|topic|topics)\b/i.test(clean);
+
   const needsIdeaPrompt =
     isVeryVague ||
-    (isTaskRequest && !hasUserDirection && (genericSubject || !specificAngle)) ||
-    (!hasUserDirection && promptWords <= 6);
+    (!hasUserDirection && promptWords <= 6) ||
+    (isTaskRequest && !hasUserDirection && genericSubject) ||
+    (asksForOriginalIdea && !specificAngle && !hasUserDirection);
 
   if (!needsIdeaPrompt) {
     return {
@@ -203,5 +232,4 @@ export function checkIdeaPrompt(prompt: string, template?: CreateTemplate): Idea
   };
 }
 
-// Backward-compatible alias in case another file imports checkIdea.
 export const checkIdea = checkIdeaPrompt;

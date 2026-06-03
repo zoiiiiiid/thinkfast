@@ -20,6 +20,7 @@ type Conversation = {
   privacy_risk?: string | null;
   idea_prompt_needed?: boolean | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 async function fetchJsonWithTimeout<T>(url: string, fallback: T): Promise<T> {
@@ -29,10 +30,15 @@ async function fetchJsonWithTimeout<T>(url: string, fallback: T): Promise<T> {
   try {
     const response = await fetch(url, { signal: controller.signal });
     if (!response.ok) return fallback;
-    const data = await response.json();
-    return data as T;
+
+    const text = await response.text().catch(() => "");
+    if (!text) return fallback;
+
+    return JSON.parse(text) as T;
   } catch (error) {
-    console.error(`Failed to fetch ${url}:`, error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error(`Failed to fetch ${url}:`, error);
+    }
     return fallback;
   } finally {
     window.clearTimeout(timeout);
@@ -126,12 +132,12 @@ export default function BoardDetailPage() {
           const isOpen = openConversationId === conversation.id;
           return (
             <article key={conversation.id} className="overflow-hidden rounded-[1.5rem] border bg-card shadow-sm">
-              <button
-                type="button"
-                onClick={() => setOpenConversationId(isOpen ? null : conversation.id)}
-                className="flex w-full items-start justify-between gap-4 p-4 text-left transition hover:bg-muted/40"
-              >
-                <div className="min-w-0">
+              <div className="flex w-full items-start justify-between gap-4 p-4 text-left">
+                <button
+                  type="button"
+                  onClick={() => setOpenConversationId(isOpen ? null : conversation.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <h2 className="font-semibold tracking-tight">{conversation.title || "Untitled conversation"}</h2>
                   <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted-foreground">
                     {conversation.summary || "No summary saved."}
@@ -147,9 +153,24 @@ export default function BoardDetailPage() {
                       <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">Idea-led</span>
                     ) : null}
                   </div>
+                </button>
+
+                <div className="flex shrink-0 flex-col items-end gap-2">
+                  <Link
+                    href={`/workspace?conversationId=${conversation.id}`}
+                    className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90"
+                  >
+                    Continue
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setOpenConversationId(isOpen ? null : conversation.id)}
+                    className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground transition hover:text-foreground"
+                  >
+                    {isOpen ? "Hide preview" : "Preview"}
+                  </button>
                 </div>
-                <span className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">{isOpen ? "Close" : "Open"}</span>
-              </button>
+              </div>
 
               {isOpen ? (
                 <div className="border-t bg-background p-4">

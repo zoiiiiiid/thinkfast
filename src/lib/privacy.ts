@@ -1,197 +1,220 @@
 import type { PrivacyCheckResult, PrivacyRisk } from "@/lib/types";
 
-type PrivacyRule = {
+type Detection = {
   label: string;
-  pattern: RegExp;
   level: "medium" | "high";
 };
 
-const CITY_NAMES = [
-  "Bacolod",
-  "Manila",
-  "Quezon City",
-  "Cebu",
-  "Davao",
-  "Iloilo",
-  "Makati",
-  "Pasig",
-  "Taguig",
-  "Mandaluyong",
-  "Paranaque",
-  "Parañaque",
-  "Caloocan",
-  "Las Pinas",
-  "Las Piñas",
-  "Baguio",
-  "Cagayan de Oro",
-  "General Santos",
-  "Zamboanga",
-  "Singapore",
-  "Tokyo",
-  "Hong Kong",
-];
+const NAME_STOPWORDS = new Set([
+  "thinking",
+  "looking",
+  "going",
+  "trying",
+  "asking",
+  "wondering",
+  "planning",
+  "hoping",
+  "making",
+  "writing",
+  "creating",
+  "building",
+  "working",
+  "studying",
+  "interested",
+  "from",
+  "for",
+  "about",
+]);
 
-const cityPattern = new RegExp(`\\b(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i");
+const COMMON_NON_NAMES = new Set([
+  "Github",
+  "GitHub",
+  "Portfolio",
+  "Business",
+  "Project",
+  "Reflection",
+  "Essay",
+  "Technology",
+  "Artificial",
+  "Intelligence",
+]);
 
-const RULES: PrivacyRule[] = [
-  {
-    label: "email",
-    pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
-    level: "high",
-  },
-  {
-    label: "phone number",
-    pattern: /(?:\+?\d{1,3}\s?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3,4}[\s-]?\d{4}\b/,
-    level: "high",
-  },
-  {
-    label: "address",
-    pattern: /\b\d{1,5}\s+[A-Za-z0-9.\s]+\s(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Village|Subdivision|Barangay|Brgy)\b/i,
-    level: "high",
-  },
-  {
-    label: "student number",
-    pattern: /\b(?:student\s*(?:id|number)|school\s*id|id\s*number)\s*[:#]?\s*[A-Z0-9-]{5,}\b/i,
-    level: "high",
-  },
-  {
-    label: "password or credential",
-    pattern: /\b(password|passcode|otp|one-time pin|login code|api key|secret key|token)\b/i,
-    level: "high",
-  },
-  {
-    label: "health details",
-    pattern: /\b(diagnosis|medical|depression|anxiety|therapy|prescription|illness|condition|surgery|medication)\b/i,
-    level: "high",
-  },
-  {
-    label: "financial details",
-    pattern: /\b(bank account|credit card|debit card|gcash|maya|salary|income|loan|debt|investment|account number)\b/i,
-    level: "high",
-  },
-  {
-    label: "deeply private story",
-    pattern: /\b(trauma|family issue|confidential|private story|secret|personal struggle|personal problem)\b/i,
-    level: "high",
-  },
-  {
-    label: "personal name",
-    pattern: /\b(my name is|i am|i'm|call me|this is)\s+([A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+){0,3})\b/i,
-    level: "medium",
-  },
-  {
-    label: "city/location",
-    pattern: new RegExp(`\\b(my city is|i live in|living in|from|based in|located in|city of)\\s+(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")}|[A-Za-z][A-Za-z'.-]+(?:\\s+City)?)\\b`, "i"),
-    level: "medium",
-  },
-  {
-    label: "city/location",
-    pattern: cityPattern,
-    level: "medium",
-  },
-  {
-    label: "school/institution",
-    pattern: /\b(Ateneo|ADMU|La Salle|DLSU|UP|UST|University|College|School|campus)\b/i,
-    level: "medium",
-  },
-  {
-    label: "professor/teacher",
-    pattern: /\b(professor|teacher|instructor|class adviser|classmate)\b/i,
-    level: "medium",
-  },
-  {
-    label: "company/workplace",
-    pattern: /\b(company|workplace|employer|boss|manager|client|organization|Inc|Corp|Corporation|LLC|Ltd)\b/i,
-    level: "medium",
-  },
-  {
-    label: "personal experience",
-    pattern: /\b(my experience|personal experience|personal use|my story|my life|journal entry|reflection about myself)\b/i,
-    level: "medium",
-  },
-  {
-    label: "business idea",
-    pattern: /\b(startup idea|business idea|private project|project proposal|pitch deck|confidential plan)\b/i,
-    level: "medium",
-  },
-];
+function unique(items: string[]) {
+  return Array.from(new Set(items));
+}
 
-function redactPrompt(prompt: string, detectedItems: string[]) {
-  let redacted = prompt;
+function isLikelyName(candidate: string) {
+  const cleaned = candidate.trim();
 
-  if (detectedItems.includes("email")) {
-    redacted = redacted.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL]");
+  if (!cleaned) return false;
+
+  const words = cleaned.split(/\s+/);
+  const firstWord = words[0]?.toLowerCase();
+
+  if (!firstWord || NAME_STOPWORDS.has(firstWord)) return false;
+  if (words.length > 4) return false;
+  if (words.some((word) => COMMON_NON_NAMES.has(word))) return false;
+
+  return words.every((word) => /^[A-Z][a-zA-Z.'-]{1,}$/.test(word));
+}
+
+function redactPattern(text: string, pattern: RegExp, replacement: string) {
+  return text.replace(pattern, replacement);
+}
+
+function hasPersonalSchoolContext(prompt: string) {
+  return /\b(my|our)\s+(school|university|college|campus|class|professor|teacher|instructor|classmate|student number|student id)\b/i.test(prompt) ||
+    /\b(professor|teacher|instructor|sir|ma'am|mam)\s+[A-Z][a-zA-Z.'-]+\b/i.test(prompt) ||
+    /\b(Ateneo|ADMU|La Salle|DLSU|UP|UST)\b/i.test(prompt) ||
+    /\b[A-Z][A-Za-z0-9&.'\s]+(?:University|College|School)\b/.test(prompt);
+}
+
+function hasCompanyContext(prompt: string) {
+  return /\b(my|our)\s+(company|workplace|employer|boss|manager|client|organization)\b/i.test(prompt) ||
+    /\b[A-Z][A-Za-z0-9&.'\s]+(?:Inc|Corp|Corporation|LLC|Ltd)\b/.test(prompt);
+}
+
+export function checkPrivacy(prompt: string): PrivacyCheckResult {
+  const detections: Detection[] = [];
+  let redactedPrompt = prompt;
+
+  function addDetection(label: string, level: "medium" | "high") {
+    detections.push({ label, level });
   }
 
-  if (detectedItems.includes("phone number")) {
-    redacted = redacted.replace(/(?:\+?\d{1,3}\s?)?(?:\(?\d{2,4}\)?[\s-]?)?\d{3,4}[\s-]?\d{4}\b/g, "[PHONE]");
+  const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+  if (emailPattern.test(prompt)) {
+    addDetection("email", "high");
+    redactedPrompt = redactPattern(redactedPrompt, emailPattern, "[EMAIL]");
   }
 
-  if (detectedItems.includes("address")) {
-    redacted = redacted.replace(
-      /\b\d{1,5}\s+[A-Za-z0-9.\s]+\s(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Village|Subdivision|Barangay|Brgy)\b/gi,
-      "[ADDRESS]",
-    );
+  const phonePattern =
+    /(?<!\d)(?:\+?\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d{3,4}[\s.-]?\d{4}(?!\d)/g;
+  if (phonePattern.test(prompt)) {
+    addDetection("phone number", "high");
+    redactedPrompt = redactPattern(redactedPrompt, phonePattern, "[PHONE]");
   }
 
-  if (detectedItems.includes("student number")) {
-    redacted = redacted.replace(
-      /\b(?:student\s*(?:id|number)|school\s*id|id\s*number)\s*[:#]?\s*[A-Z0-9-]{5,}\b/gi,
+  const addressPattern =
+    /\b\d{1,5}\s+[A-Za-z0-9.'\s]+\s(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Village|Subdivision|Boulevard|Blvd)\b/gi;
+  if (addressPattern.test(prompt)) {
+    addDetection("address", "high");
+    redactedPrompt = redactPattern(redactedPrompt, addressPattern, "[ADDRESS]");
+  }
+
+  const studentNumberPattern =
+    /\b(?:student\s*(?:id|number)|id\s*number)\s*[:#]?\s*[A-Z0-9-]{5,}\b/gi;
+  if (studentNumberPattern.test(prompt)) {
+    addDetection("student number", "high");
+    redactedPrompt = redactPattern(
+      redactedPrompt,
+      studentNumberPattern,
       "[STUDENT_ID]",
     );
   }
 
-  if (detectedItems.includes("personal name")) {
-    redacted = redacted.replace(
-      /\b(my name is|i am|i'm|call me|this is)\s+([A-Za-z][A-Za-z'.-]+(?:\s+[A-Za-z][A-Za-z'.-]+){0,3})\b/gi,
-      "$1 [NAME]",
-    );
+  const healthPattern =
+    /\b(diagnosis|diagnosed|medical|depression|anxiety|therapy|prescription|illness|condition|surgery|medication|hospital|doctor)\b/i;
+  if (healthPattern.test(prompt)) {
+    addDetection("health details", "high");
   }
 
-  if (detectedItems.includes("city/location")) {
-    redacted = redacted.replace(
-      new RegExp(`\\b(${CITY_NAMES.map((city) => city.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "gi"),
-      "[CITY]",
-    );
-
-    redacted = redacted.replace(
-      /\b(my city is|i live in|living in|from|based in|located in|city of)\s+([A-Za-z][A-Za-z'.-]+(?:\s+City)?)\b/gi,
-      "$1 [CITY]",
-    );
+  const financialPattern =
+    /\b(bank account|credit card|debit card|debt|salary|income|loan|investment|gcash|maya|account number)\b/i;
+  if (financialPattern.test(prompt)) {
+    addDetection("financial details", "high");
   }
 
-  if (detectedItems.includes("school/institution")) {
-    redacted = redacted.replace(
-      /\b(Ateneo|ADMU|La Salle|DLSU|UP|UST|[A-Z][A-Za-z0-9&.\s]+(?:University|College|School))\b/g,
-      "[SCHOOL]",
-    );
+  const legalPattern =
+    /\b(legal case|lawsuit|criminal|court case|police report|confidential|nda|settlement)\b/i;
+  if (legalPattern.test(prompt)) {
+    addDetection("legal/confidential details", "high");
   }
 
-  if (detectedItems.includes("company/workplace")) {
-    redacted = redacted.replace(
-      /\b[A-Z][A-Za-z0-9&.\s]+(?:Inc|Corp|Corporation|LLC|Ltd)\b/g,
+  const namePatterns = [
+    /\bmy\s+name\s+is\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bi\s+am\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bi'm\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bthis\s+is\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+  ];
+
+  for (const pattern of namePatterns) {
+    const matches = Array.from(prompt.matchAll(pattern));
+
+    for (const match of matches) {
+      const candidate = match[1];
+
+      if (candidate && isLikelyName(candidate)) {
+        addDetection("personal name", "medium");
+        redactedPrompt = redactedPrompt.replace(candidate, "[NAME]");
+      }
+    }
+  }
+
+  const cityPatterns = [
+    /\bi\s+live\s+in\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bmy\s+city\s+is\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bi\s+am\s+from\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bi'm\s+from\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+    /\bbased\s+in\s+([A-Z][a-zA-Z.'-]*(?:\s+[A-Z][a-zA-Z.'-]*){0,3})\b/g,
+  ];
+
+  for (const pattern of cityPatterns) {
+    const matches = Array.from(prompt.matchAll(pattern));
+
+    for (const match of matches) {
+      const city = match[1];
+
+      if (city) {
+        addDetection("city/location", "medium");
+        redactedPrompt = redactedPrompt.replace(city, "[CITY]");
+      }
+    }
+  }
+
+  if (hasPersonalSchoolContext(prompt)) {
+    addDetection("school/institution", "medium");
+    redactedPrompt = redactedPrompt
+      .replace(/\b(Ateneo|ADMU|La Salle|DLSU|UP|UST)\b/g, "[SCHOOL]")
+      .replace(
+        /\b[A-Z][A-Za-z0-9&.'\s]+(?:University|College|School)\b/g,
+        "[SCHOOL]",
+      );
+  }
+
+  if (hasCompanyContext(prompt)) {
+    addDetection("company/workplace", "medium");
+    redactedPrompt = redactedPrompt.replace(
+      /\b[A-Z][A-Za-z0-9&.'\s]+(?:Inc|Corp|Corporation|LLC|Ltd)\b/g,
       "[COMPANY]",
     );
   }
 
-  return redacted;
-}
+  const personalContextPattern =
+    /\b(my experience|personal use|my personal|my life|my story|journal|private reflection)\b/i;
+  if (personalContextPattern.test(prompt)) {
+    addDetection("personal context", "medium");
+  }
 
-export function checkPrivacy(prompt: string): PrivacyCheckResult {
-  const matchedRules = RULES.filter((rule) => rule.pattern.test(prompt));
-  const detectedItems = Array.from(new Set(matchedRules.map((rule) => rule.label)));
+  const businessIdeaPattern =
+    /\b(confidential plan|confidential pitch|private startup idea|private business idea)\b/i;
+  if (businessIdeaPattern.test(prompt)) {
+    addDetection("business/project idea", "medium");
+  }
+
+  const detectedItems = unique(detections.map((item) => item.label));
 
   let privacyRisk: PrivacyRisk = "low";
 
-  if (matchedRules.some((rule) => rule.level === "high")) {
+  if (detections.some((item) => item.level === "high")) {
     privacyRisk = "high";
-  } else if (matchedRules.some((rule) => rule.level === "medium")) {
+  } else if (detections.some((item) => item.level === "medium")) {
     privacyRisk = "medium";
   }
 
   return {
     privacyRisk,
     detectedItems,
-    redactedPrompt: redactPrompt(prompt, detectedItems),
+    redactedPrompt,
   };
 }

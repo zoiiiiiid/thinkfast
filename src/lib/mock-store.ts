@@ -25,6 +25,18 @@ type Conversation = {
   updated_at: string;
 };
 
+type ConversationMessage = {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  title?: string | null;
+  summary?: string | null;
+  tags?: string[];
+  created_at: string;
+};
+
 type Board = {
   id: string;
   user_id: string;
@@ -36,11 +48,13 @@ type Board = {
 export const mockStore: {
   feedCards: FeedCard[];
   conversations: Conversation[];
+  conversationMessages: Record<string, ConversationMessage[]>;
   boards: Board[];
   conversationBoards: { id: string; conversation_id: string; board_id: string; created_at: string }[];
 } = {
   feedCards: [],
   conversations: [],
+  conversationMessages: {},
   boards: [],
   conversationBoards: [],
 };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { checkIdeaPrompt } from "@/lib/idea-check";
+import { requireUser } from "@/lib/server-security";
 import type { CreateTemplate } from "@/lib/types";
 
 const schema = z.object({
@@ -10,7 +11,10 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const parsed = schema.safeParse(await req.json());
+    const auth = await requireUser();
+    if (auth.response) return auth.response;
+
+    const parsed = schema.safeParse(await req.json().catch(() => null));
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -28,7 +32,9 @@ export async function POST(req: Request) {
       checkIdeaPrompt(parsed.data.prompt, parsed.data.template as CreateTemplate | undefined),
     );
   } catch (error) {
-    console.error("Idea check route error:", error);
+    if (process.env.NODE_ENV !== "production") {
+      console.error("Idea check route error:", error);
+    }
 
     return NextResponse.json(
       {
